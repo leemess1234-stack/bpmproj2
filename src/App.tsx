@@ -46,6 +46,16 @@ export default function App() {
   const [isPulsing, setIsPulsing] = useState(false);
   const [scanningProgress, setScanningProgress] = useState(0);
   const [countdown, setCountdown] = useState(5);
+  const [isSecure, setIsSecure] = useState(true);
+  
+  useEffect(() => {
+    // Check if the environment is secure (needed for getUserMedia)
+    if (window.location.protocol !== 'https:' && 
+        window.location.hostname !== 'localhost' && 
+        window.location.hostname !== '127.0.0.1') {
+      setIsSecure(false);
+    }
+  }, []);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -374,6 +384,26 @@ export default function App() {
 
       {/* Signal Bar Bottom Decor */}
       <div className="absolute bottom-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent"></div>
+
+      {/* Security Warning Modal */}
+      {!isSecure && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/90 backdrop-blur-md">
+          <div className="bg-red-950/20 border border-red-500/30 p-8 rounded-[2rem] max-w-sm text-center">
+            <Zap className="w-12 h-12 text-red-500 mx-auto mb-4 animate-pulse" />
+            <h2 className="text-xl font-bold mb-4 tracking-tight">Security Restriction</h2>
+            <p className="text-sm text-white/60 leading-relaxed mb-6">
+              Microphone access requires an <span className="text-white font-bold">HTTPS</span> connection. 
+              The analysis engine is locked because this site is being served over insecure HTTP.
+            </p>
+            <button 
+              onClick={() => window.location.href = window.location.href.replace('http:', 'https:')}
+              className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-2xl transition-all shadow-lg active:scale-95"
+            >
+              UPGRADE TO HTTPS
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
