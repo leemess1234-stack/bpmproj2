@@ -1,0 +1,8 @@
+{
+  "name": "Tempo Sync v3",
+  "description": "High-precision audio analysis engine for BPM and Key detection.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
