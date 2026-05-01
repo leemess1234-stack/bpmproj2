@@ -44,8 +44,6 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [confidence, setConfidence] = useState(0);
   const [isPulsing, setIsPulsing] = useState(false);
-  const [scanningProgress, setScanningProgress] = useState(0);
-  const [countdown, setCountdown] = useState(5);
   const [isSecure, setIsSecure] = useState(true);
   
   useEffect(() => {
@@ -98,81 +96,80 @@ export default function App() {
       chromaBufferRef.current = [];
       energyHistoryRef.current = [];
       analysisStartRef.current = Date.now();
-      setScanningProgress(0);
-      setCountdown(5);
 
       const bufferLength = analyser.frequencyBinCount;
       const freqData = new Uint8Array(bufferLength);
       const timeData = new Uint8Array(analyser.fftSize);
+      
+      let frameCount = 0;
       
       const analyze = () => {
         if (!analyserRef.current) return;
         analyserRef.current.getByteFrequencyData(freqData);
         analyserRef.current.getByteTimeDomainData(timeData);
 
-        // --- Visualizer (Transient Focused) ---
+        // --- Brighter Visualizer (Time Domain Waveform) ---
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const samples = energyHistoryRef.current.slice(-100);
-            const w = canvas.width / 100;
-            ctx.lineWidth = 1.5;
             
-            samples.forEach((e, i) => {
-              const h = (e / 255) * canvas.height;
-              const x = i * w;
-              // Highlight detected beats
-              ctx.strokeStyle = e > 160 ? '#22d3ee' : 'rgba(255, 255, 255, 0.05)';
-              ctx.beginPath();
-              ctx.moveTo(x, canvas.height);
-              ctx.lineTo(x, canvas.height - h);
-              ctx.stroke();
-            });
+            // Draw Glow Waveform
+            ctx.strokeStyle = '#22d3ee';
+            ctx.shadowColor = '#22d3ee';
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+
+            const sliceWidth = canvas.width / analyser.fftSize;
+            let x = 0;
+            for (let i = 0; i < analyser.fftSize; i++) {
+              const v = timeData[i] / 128.0;
+              const y = (v * canvas.height) / 2;
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+              x += sliceWidth;
+            }
+            ctx.stroke();
+            ctx.shadowBlur = 0; 
           }
         }
 
-        // --- Improved BPM Logic (5s Autocorrelation) ---
+        // --- Rolling BPM Logic ---
         let energy = 0;
         const binSize = audioContextRef.current!.sampleRate / analyser.fftSize;
         const lowEnd = Math.floor(40 / binSize);
-        const highEnd = Math.ceil(180 / binSize);
+        const highEnd = Math.ceil(160 / binSize);
         for (let i = lowEnd; i <= highEnd; i++) energy += freqData[i];
         energy /= (highEnd - lowEnd + 1);
 
-        // Store energy samples for autocorrelation (approx 50-60 samples per second)
         energyHistoryRef.current.push(energy);
         if (energyHistoryRef.current.length > 300) energyHistoryRef.current.shift();
 
         // Pulsing visual
-        const recentEnergy = energyHistoryRef.current.slice(-10);
-        const avgEnergy = recentEnergy.reduce((a, b) => a + b, 0) / recentEnergy.length;
-        if (energy > Math.max(avgEnergy * 1.6, 150)) {
+        const recentEnergy = energyHistoryRef.current.slice(-5);
+        const avgRecent = recentEnergy.length ? recentEnergy.reduce((a, b) => a + b, 0) / recentEnergy.length : 0;
+        if (energy > 165 && energy > avgRecent * 1.4) {
           const now = Date.now();
-          if (now - lastPeakTimeRef.current > 250) {
+          if (now - lastPeakTimeRef.current > 240) {
             setIsPulsing(true);
             setTimeout(() => setIsPulsing(false), 80);
             lastPeakTimeRef.current = now;
           }
         }
 
-        // Periodic Refresh (5s)
-        const elapsed = (Date.now() - analysisStartRef.current) / 1000;
-        setScanningProgress(Math.min((elapsed / 5) * 100, 100));
-        setCountdown(Math.max(0, Math.ceil(5 - elapsed)));
-
-        if (elapsed >= 5) {
-          // Autocorrelation to find periodic peaks
+        // Continuous Calculation
+        frameCount++;
+        if (frameCount % 15 === 0 && energyHistoryRef.current.length > 100) {
           const buffer = energyHistoryRef.current;
           let bestLag = 0;
           let maxCorr = -1;
           
-          // Lag range: 15 (240 BPM) to 100 (36 BPM)
-          for (let lag = 15; lag < 100; lag++) {
+          for (let lag = 18; lag < 100; lag++) {
             let corr = 0;
             for (let i = 0; i < buffer.length - lag; i++) {
-              corr += buffer[i] * buffer[i + lag];
+              corr += (buffer[i] / 255) * (buffer[i + lag] / 255);
             }
             if (corr > maxCorr) {
               maxCorr = corr;
@@ -181,14 +178,11 @@ export default function App() {
           }
           
           if (bestLag > 0) {
-            // Convert lag to BPM (samples are approx 1/55 seconds apart)
-            const lagSeconds = bestLag * (5 / buffer.length);
-            const rawBpm = 60 / lagSeconds;
-            if (rawBpm > 30 && rawBpm < 240) {
+            const rawBpm = (60 * 58) / bestLag;
+            if (rawBpm > 40 && rawBpm < 220) {
               setBpm(rawBpm.toFixed(1));
             }
           }
-          analysisStartRef.current = Date.now();
         }
 
         // --- Key Logic ---
@@ -265,50 +259,45 @@ export default function App() {
       {/* Primary Display */}
       <main className="flex-1 flex flex-col items-center justify-center relative z-10">
         <div className="relative group flex items-center justify-center">
-          {/* Signal Scope - Tailored for phone */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40">
+          {/* Signal Scope - Glowing & High Contrast */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-60">
              <canvas 
                ref={canvasRef}
-               width={300}
-               height={100}
-               className="w-full h-[80px]"
+               width={400}
+               height={120}
+               className="w-full h-[100px] blur-[1px]"
              />
           </div>
 
           <motion.div 
             animate={{ 
               scale: isPulsing ? 1.3 : 1,
-              borderColor: isPulsing ? '#22d3ee' : 'rgba(34, 211, 238, 0.2)'
+              borderColor: isPulsing ? '#22d3ee' : 'rgba(34, 211, 238, 0.1)',
+              borderWidth: isPulsing ? '3px' : '1px',
+              opacity: isPulsing ? 1 : 0.2
             }}
             transition={{ duration: 0.1 }}
-            className={`absolute w-[280px] h-[280px] rounded-full border-[1px] transition-colors`}
+            className={`absolute w-[300px] h-[300px] rounded-full border transition-colors`}
           ></motion.div>
           
           <div className="text-center relative z-20">
             <AnimatePresence mode="wait">
               <motion.div 
                 key={bpm ?? 'off'}
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-[100px] font-black tracking-tighter leading-none flex items-baseline justify-center select-none"
+                className="text-[120px] font-black tracking-tighter leading-none flex items-baseline justify-center select-none drop-shadow-[0_0_20px_rgba(34,211,238,0.3)]"
               >
                 {bpm ? bpm.split('.')[0] : '00'}
-                <span className="text-3xl opacity-20 font-thin ml-1">.{bpm ? bpm.split('.')[1] : '0'}</span>
+                <span className="text-4xl opacity-20 font-thin ml-1">.{bpm ? bpm.split('.')[1] : '0'}</span>
               </motion.div>
             </AnimatePresence>
             
             {isListening && (
               <div className="mt-4 flex flex-col items-center">
-                 <div className="flex items-center gap-3 mb-2">
-                    <span className="text-[10px] font-mono opacity-40 uppercase tracking-widest">Next Calc:</span>
-                    <span className="text-cyan-400 font-bold font-mono text-xs">{countdown}s</span>
-                 </div>
-                 <div className="w-24 h-0.5 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                      animate={{ width: `${scanningProgress}%` }}
-                      transition={{ ease: "linear" }}
-                      className="h-full bg-cyan-400"
-                    />
+                 <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]"></div>
+                    <span className="text-[10px] font-mono tracking-[0.3em] uppercase text-cyan-400">Analysis Live</span>
                  </div>
               </div>
             )}
